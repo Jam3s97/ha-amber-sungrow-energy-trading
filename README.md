@@ -1,62 +1,44 @@
-Home Assistant: Sungrow SH10RS & Amber Electric Energy Trading
-This repository provides a robust, automated energy trading solution for the Sungrow SH-RS series of hybrid inverters (SH5.0RS, SH8.0RS, SH10RS) paired with Sungrow SBR/SBH battery storage.
+# Home Assistant: Sungrow SH10RS & Amber Electric
 
-It is designed specifically for Amber Electric customers in Australia to capitalise on wholesale price volatility through automated grid-charging, price-spike dumping, and solar curtailment.
+This repository provides a robust, automated energy trading solution for the **Sungrow SH-RS** series of hybrid inverters (SH5.0RS, SH8.0RS, SH10RS) paired with **Sungrow SBR/SBH** battery storage.
 
-🌟 Key Features
-Closed-Loop Amber Trading: Automatically manages inverter states based on real-time wholesale pricing.
+It is specifically designed for **Amber Electric** customers in Australia to capitalise on wholesale price volatility through automated grid-charging, price-spike dumping, and solar curtailment.
 
-Tiered Export Dumping: Three user-definable price tiers (cents/kWh) to forcefully discharge the battery to the grid during price spikes.
+---
 
-Negative Price Protection: * Auto-Charge: Automatically charges the battery from the grid when wholesale prices drop below $0.00 (Get paid to charge).
+## 🌟 Key Features
 
-Solar Curtailment: Forces Zero-Export mode when feed-in tariffs turn negative to prevent paying to export solar.
+* **Closed-Loop Amber Trading:** Automatically manages inverter states based on real-time wholesale pricing.
+* **Tiered Export Dumping:** Three user-definable price tiers (cents/kWh) to forcefully discharge the battery to the grid during high-price events.
+* **Negative Price Protection:**
+    * **Auto-Charge:** Automatically charges the battery from the grid when wholesale prices drop below $0.00 (Get paid to charge).
+    * **Solar Curtailment:** Forces Zero-Export mode when feed-in tariffs turn negative to prevent paying to export solar.
+* **Storm Mode:** A one-click override that forces a 100% charge and maintains a full battery reserve in preparation for severe weather.
+* **Manual Overrides:** Full manual control via a dropdown menu for Self-Consumption, Max Export, or Grid Charge modes.
 
-Storm Mode: A one-click override that forces a 100% charge and maintains a full battery reserve in preparation for severe weather.
+---
 
-Manual Overrides: Full manual control via a dropdown menu for Self-Consumption, Max Export, or Grid Charge modes.
+## 🛠️ Hardware & Software Requirements
 
-🛠️ Hardware & Software Requirements
-Hardware
-Inverter: Sungrow SH10RS (or any SH-RS/SH-RT series hybrid).
+### Hardware
+* **Inverter:** Sungrow SH10RS (or any SH-RS/SH-RT series hybrid).
+* **Battery:** Sungrow SBR (Modular) or SBH series.
+* **Connectivity:** **Physical LAN connection** to the inverter is mandatory. The Sungrow Wi-Fi/WiNet-S dongles do not support the high-frequency Modbus polling required for reliable trading.
 
-Battery: Sungrow SBR (Modular) or SBH series.
+### Software/Integrations
+* [**Sungrow SHx Integration (mkaiser)**](https://github.com/mkaiser/Sungrow-SHx-Inverter-Home-Assistant): This package relies on the specific entity naming convention provided by this integration.
+* **Amber Electric Integration:** The official Home Assistant integration.
 
-Connectivity: Physical LAN connection to the inverter is mandatory. The Sungrow Wi-Fi/WiNet-S dongles do not support the high-frequency Modbus polling required for reliable trading.
+---
 
-Software/Integrations
-Sungrow SHx Integration (mkaiser): This package relies on the specific entity naming convention provided by this integration.
+## ⚙️ Installation & Setup
 
-Amber Electric Integration: The official Home Assistant integration.
+### 1. Integration Setup
+Install the **Sungrow SHx** integration via HACS. Ensure your inverter is connected via Ethernet and Modbus is enabled in the Sungrow settings (typically via the iSolarCloud app).
 
-⚙️ Installation & Setup
-1. Integration Setup
-Install the Sungrow SHx integration via HACS. Ensure your inverter is connected via Ethernet and Modbus is enabled in the Sungrow settings (typically via the iSolarCloud app).
+### 2. Package Configuration
+Ensure your `configuration.yaml` is set up to use packages:
 
-2. Package Configuration
-Ensure your configuration.yaml is set up to use packages:
-
-YAML
+```yaml
 homeassistant:
   packages: !include_dir_named packages
-Create a file named energy_trading.yaml in your packages/ folder and paste the provided backend code.
-
-3. Entity Alignment
-This package uses the following default entity IDs. If yours differ, perform a Find and Replace:
-
-sensor.the_tauchers_home_general_price (Amber Buy Price)
-
-sensor.the_tauchers_home_feed_in_price (Amber FiT/Sell Price)
-
-sensor.battery_level (Home Battery SoC)
-
-select.ems_mode (Sungrow EMS Select)
-
-4. Dashboard Setup
-Install the following via HACS:
-
-Mushroom Cards
-
-Power Flow Card Plus
-
-Create a new dashboard and use the "Raw Configuration Editor" to paste the contents of dashboard.yaml.
