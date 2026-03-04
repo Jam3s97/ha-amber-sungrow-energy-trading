@@ -251,9 +251,9 @@ automation:
     mode: queued
     triggers:
       - trigger: state
-        entity_id: sensor.the_tauchers_home_feed_in_price
+        entity_id: sensor.amber_home_feed_in_price
       - trigger: state
-        entity_id: sensor.the_tauchers_home_general_price
+        entity_id: sensor.amber_home_general_price
       - trigger: state
         entity_id: sensor.battery_level
       - trigger: state
@@ -281,8 +281,8 @@ automation:
         state: "Auto Mode"
     actions:
       - variables:
-          price: "{{ states('sensor.the_tauchers_home_feed_in_price') | float(0) }}"
-          buy_price: "{{ states('sensor.the_tauchers_home_general_price') | float(0) }}"
+          price: "{{ states('sensor.amber_home_feed_in_price') | float(0) }}"
+          buy_price: "{{ states('sensor.amber_home_general_price') | float(0) }}"
           soc: "{{ states('sensor.battery_level') | int(0) }}"
           # Divide whole cents by 100 to compare against Amber's dollar amounts
           t3_price: "{{ states('input_number.fil_amber_dump_tier3_cents') | float(0) / 100 }}"
@@ -386,7 +386,7 @@ automation:
                 entity_id: input_boolean.auto_grid_charge_negative_buy
                 state: "on"
               - condition: numeric_state
-                entity_id: sensor.the_tauchers_home_general_price
+                entity_id: sensor.amber_home_general_price
                 below: 0
             sequence:
               - action: select.select_option
@@ -419,7 +419,7 @@ automation:
                 entity_id: input_boolean.auto_zero_export_negative_fit
                 state: "on"
               - condition: numeric_state
-                entity_id: sensor.the_tauchers_home_feed_in_price
+                entity_id: sensor.amber_home_feed_in_price
                 below: 0
             sequence:
               - action: select.select_option
@@ -455,4 +455,5 @@ automation:
               option: "Stop (default)"
           - action: switch.turn_off
             target:
+
               entity_id: switch.export_power_limit
