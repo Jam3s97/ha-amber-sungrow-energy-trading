@@ -11,8 +11,8 @@ It is specifically designed for **Amber Electric** customers in Australia to cap
 * **Closed-Loop Amber Trading:** Automatically manages inverter states based on real-time wholesale pricing.
 * **Tiered Export Dumping:** Three user-definable price tiers (cents/kWh) to forcefully discharge the battery to the grid during high-price events.
 * **Negative Price Protection:**
-    * **Auto-Charge:** Automatically charges the battery from the grid when wholesale prices drop below $0.00 (Get paid to charge).
-    * **Solar Curtailment:** Forces Zero-Export mode when feed-in tariffs turn negative to prevent paying to export solar.
+  * **Auto-Charge:** Automatically charges the battery from the grid when wholesale prices drop below $0.00 (Get paid to charge).
+  * **Solar Curtailment:** Forces Zero-Export mode when feed-in tariffs turn negative to prevent paying to export solar.
 * **Storm Mode:** A one-click override that forces a 100% charge and maintains a full battery reserve in preparation for severe weather.
 * **Manual Overrides:** Full manual control via a dropdown menu for Self-Consumption, Max Export, or Grid Charge modes.
 
@@ -42,3 +42,21 @@ Ensure your `configuration.yaml` is set up to use packages:
 ```yaml
 homeassistant:
   packages: !include_dir_named packages
+```
+
+Create a file named `energy_trading.yaml` in your `packages/` folder and paste the provided backend code.
+
+### 3. Entity Alignment
+This package uses the following default entity IDs. If yours differ, perform a **Find and Replace** in the YAML:
+
+* `sensor.the_tauchers_home_general_price` (Amber Buy Price)
+* `sensor.the_tauchers_home_feed_in_price` (Amber FiT/Sell Price)
+* `sensor.battery_level` (Home Battery SoC)
+* `select.ems_mode` (Sungrow EMS Select)
+
+### 4. Dashboard Setup
+Install the following via HACS:
+* [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom)
+* [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus)
+
+Create a new dashboard and use the **Raw Configuration Editor** to paste the contents of `dashboard.yaml`.
