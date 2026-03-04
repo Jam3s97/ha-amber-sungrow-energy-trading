@@ -1,0 +1,458 @@
+# /config/packages/energy_trading.yaml
+# ==============================================================================
+# 1. SETTINGS & INPUTS
+# ==============================================================================
+input_select:
+  master_inverter_mode:
+    name: Master Inverter Control
+    options:
+      - "Auto Mode"
+      - "Excess Solar to Grid"
+      - "Max Export (Dump)"
+      - "Max Import (Grid Charge)"
+      - "Self Consumption (Zero Export)"
+      - "Storm Mode"
+    icon: mdi:solar-power-variant
+
+input_boolean:
+  auto_zero_export_negative_fit:
+    name: Auto Mode - Zero Export on Negative FiT
+    icon: mdi:solar-panel-large
+
+  auto_grid_charge_negative_buy:
+    name: Auto Mode - Grid Charge on Negative Buy Price
+    icon: mdi:battery-charging-100
+
+input_number:
+  fil_amber_dump_tier1_cents:
+    name: Tier 1 - Trigger Dump FiT
+    min: -20
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "¢"
+    icon: mdi:cash
+
+  auto_dump_min_soc_tier1:
+    name: Tier 1 - Stop Dumping at SoC
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "%"
+    icon: mdi:battery-arrow-down
+
+  fil_amber_dump_tier2_cents:
+    name: Tier 2 - Trigger Dump FiT
+    min: -20
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "¢"
+    icon: mdi:cash-multiple
+
+  auto_dump_min_soc_tier2:
+    name: Tier 2 - Stop Dumping at SoC
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "%"
+    icon: mdi:battery-arrow-down
+
+  fil_amber_dump_tier3_cents:
+    name: Tier 3 - Trigger Dump FiT
+    min: -20
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "¢"
+    icon: mdi:cash-fast
+
+  auto_dump_min_soc_tier3:
+    name: Tier 3 - Stop Dumping at SoC
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+    unit_of_measurement: "%"
+    icon: mdi:battery-arrow-down
+
+# ==============================================================================
+# 2. AUTOMATIONS
+# ==============================================================================
+automation:
+  - id: "automation_master_inverter_control"
+    alias: "Master Inverter Control Automation"
+    description: "Controls inverter behaviour from a single dropdown (Manual Overrides)"
+    triggers:
+      - trigger: state
+        entity_id: input_select.master_inverter_mode
+    actions:
+      - choose:
+          # Standard normal operation. Solar powers house -> charges battery -> exports excess.
+          - conditions:
+              - condition: state
+                entity_id: input_select.master_inverter_mode
+                state: "Excess Solar to Grid"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Self-consumption mode (default)"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Stop (default)"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_reserved_soc_for_backup
+                data:
+                  value: 0
+
+          # Dumps battery to grid at max capacity.
+          - conditions:
+              - condition: state
+                entity_id: input_select.master_inverter_mode
+                state: "Max Export (Dump)"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced discharge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Pulls from grid to charge battery at max capacity.
+          - conditions:
+              - condition: state
+                entity_id: input_select.master_inverter_mode
+                state: "Max Import (Grid Charge)"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced charge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_charge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Standard operation but blocks export to the grid.
+          - conditions:
+              - condition: state
+                entity_id: input_select.master_inverter_mode
+                state: "Self Consumption (Zero Export)"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Self-consumption mode (default)"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Stop (default)"
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: 0
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+
+          # Forces charge at maximum rate and sets backup reserve to 100% so it stays full.
+          - conditions:
+              - condition: state
+                entity_id: input_select.master_inverter_mode
+                state: "Storm Mode"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced charge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_charge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_reserved_soc_for_backup
+                data:
+                  value: 100
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+  - id: "automation_amber_auto_mode"
+    alias: "Amber Trading Auto Mode"
+    description: "Evaluates Amber pricing and SoC to dynamically control inverter when in Auto Mode"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: sensor.the_tauchers_home_feed_in_price
+      - trigger: state
+        entity_id: sensor.the_tauchers_home_general_price
+      - trigger: state
+        entity_id: sensor.battery_level
+      - trigger: state
+        entity_id: input_select.master_inverter_mode
+        to: "Auto Mode"
+      - trigger: state
+        entity_id: input_number.fil_amber_dump_tier1_cents
+      - trigger: state
+        entity_id: input_number.auto_dump_min_soc_tier1
+      - trigger: state
+        entity_id: input_number.fil_amber_dump_tier2_cents
+      - trigger: state
+        entity_id: input_number.auto_dump_min_soc_tier2
+      - trigger: state
+        entity_id: input_number.fil_amber_dump_tier3_cents
+      - trigger: state
+        entity_id: input_number.auto_dump_min_soc_tier3
+      - trigger: state
+        entity_id: input_boolean.auto_zero_export_negative_fit
+      - trigger: state
+        entity_id: input_boolean.auto_grid_charge_negative_buy
+    conditions:
+      - condition: state
+        entity_id: input_select.master_inverter_mode
+        state: "Auto Mode"
+    actions:
+      - variables:
+          price: "{{ states('sensor.the_tauchers_home_feed_in_price') | float(0) }}"
+          buy_price: "{{ states('sensor.the_tauchers_home_general_price') | float(0) }}"
+          soc: "{{ states('sensor.battery_level') | int(0) }}"
+          # Divide whole cents by 100 to compare against Amber's dollar amounts
+          t3_price: "{{ states('input_number.fil_amber_dump_tier3_cents') | float(0) / 100 }}"
+          t3_soc: "{{ states('input_number.auto_dump_min_soc_tier3') | int(0) }}"
+          t2_price: "{{ states('input_number.fil_amber_dump_tier2_cents') | float(0) / 100 }}"
+          t2_soc: "{{ states('input_number.auto_dump_min_soc_tier2') | int(0) }}"
+          t1_price: "{{ states('input_number.fil_amber_dump_tier1_cents') | float(0) / 100 }}"
+          t1_soc: "{{ states('input_number.auto_dump_min_soc_tier1') | int(0) }}"
+
+      - choose:
+          # Priority 1: Dump Condition Met (Tier 3 - Extreme Spike)
+          - conditions:
+              - condition: template
+                value_template: "{{ price >= t3_price and soc > t3_soc }}"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced discharge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Priority 2: Dump Condition Met (Tier 2 - Medium Spike)
+          - conditions:
+              - condition: template
+                value_template: "{{ price >= t2_price and soc > t2_soc }}"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced discharge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Priority 3: Dump Condition Met (Tier 1 - Low Spike)
+          - conditions:
+              - condition: template
+                value_template: "{{ price >= t1_price and soc > t1_soc }}"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced discharge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Priority 4: Negative Buy Price (Get Paid to Charge)
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.auto_grid_charge_negative_buy
+                state: "on"
+              - condition: numeric_state
+                entity_id: sensor.the_tauchers_home_general_price
+                below: 0
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Forced mode"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Forced charge"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_forced_charge_discharge_power
+                data:
+                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+              - action: number.set_value
+                target:
+                  entity_id: number.battery_max_charge_power
+                data:
+                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.export_power_limit
+
+          # Priority 5: Negative FiT condition met (Stop Export)
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.auto_zero_export_negative_fit
+                state: "on"
+              - condition: numeric_state
+                entity_id: sensor.the_tauchers_home_feed_in_price
+                below: 0
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ems_mode
+                data:
+                  option: "Self-consumption mode (default)"
+              - action: select.select_option
+                target:
+                  entity_id: select.battery_forced_charge_discharge
+                data:
+                  option: "Stop (default)"
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: 0
+
+        # Default Auto Fallback: Normal self-consumption & export excess
+        default:
+          - action: select.select_option
+            target:
+              entity_id: select.ems_mode
+            data:
+              option: "Self-consumption mode (default)"
+          - action: select.select_option
+            target:
+              entity_id: select.battery_forced_charge_discharge
+            data:
+              option: "Stop (default)"
+          - action: switch.turn_off
+            target:
+              entity_id: switch.export_power_limit
