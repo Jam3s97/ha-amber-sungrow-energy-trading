@@ -49,8 +49,8 @@ Create a file named `energy_trading.yaml` in your `packages/` folder and paste t
 ### 3. Entity Alignment
 This package uses the following default entity IDs. If yours differ, perform a **Find and Replace** in the YAML:
 
-* `sensor.the_tauchers_home_general_price` (Amber Buy Price)
-* `sensor.the_tauchers_home_feed_in_price` (Amber FiT/Sell Price)
+* `sensor.amber_general_price` (Amber Buy Price)
+* `sensor.amber_feed_in_price` (Amber FiT/Sell Price)
 * `sensor.battery_level` (Home Battery SoC)
 * `select.ems_mode` (Sungrow EMS Select)
 
