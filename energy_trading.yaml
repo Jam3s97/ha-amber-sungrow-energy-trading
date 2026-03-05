@@ -78,6 +78,16 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:battery-arrow-down
 
+# Added DNSP export limit input number as my invertor has higher capactiy than my approved DNSP export limt.
+  grid_export_dnsp_limit:
+    name: Grid Export DNSP Limit
+    min: 0
+    max: "{{ states('sensor.inverter_rated_output') | int(0) }}"
+    step: 1
+    mode: slider
+    unit_of_measurement: "W"
+    icon: mdi:transmission-tower-export
+
 # ==============================================================================
 # 2. AUTOMATIONS
 # ==============================================================================
@@ -106,9 +116,14 @@ automation:
                   entity_id: select.battery_forced_charge_discharge
                 data:
                   option: "Stop (default)"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
               - action: number.set_value
                 target:
                   entity_id: number.battery_max_discharge_power
@@ -146,9 +161,14 @@ automation:
                   entity_id: number.battery_max_discharge_power
                 data:
                   value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Pulls from grid to charge battery at max capacity.
           - conditions:
@@ -176,9 +196,14 @@ automation:
                   entity_id: number.battery_max_charge_power
                 data:
                   value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Standard operation but blocks export to the grid.
           - conditions:
@@ -241,9 +266,14 @@ automation:
                   entity_id: number.battery_reserved_soc_for_backup
                 data:
                   value: 100
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
   - id: "automation_amber_auto_mode"
     alias: "Amber Trading Auto Mode"
@@ -318,9 +348,14 @@ automation:
                   entity_id: number.battery_max_discharge_power
                 data:
                   value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Priority 2: Dump Condition Met (Tier 2 - Medium Spike)
           - conditions:
@@ -347,9 +382,14 @@ automation:
                   entity_id: number.battery_max_discharge_power
                 data:
                   value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Priority 3: Dump Condition Met (Tier 1 - Low Spike)
           - conditions:
@@ -376,9 +416,14 @@ automation:
                   entity_id: number.battery_max_discharge_power
                 data:
                   value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Priority 4: Negative Buy Price (Get Paid to Charge)
           - conditions:
@@ -409,9 +454,14 @@ automation:
                   entity_id: number.battery_max_charge_power
                 data:
                   value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-              - action: switch.turn_off
+              - action: switch.turn_on
                 target:
                   entity_id: switch.export_power_limit
+              - action: number.set_value
+                target:
+                  entity_id: number.export_power_limit
+                data:
+                  value: number.grid_export_dnsp_limit
 
           # Priority 5: Negative FiT condition met (Stop Export)
           - conditions:
@@ -454,6 +504,11 @@ automation:
             data:
               option: "Stop (default)"
           - action: switch.turn_off
+          - action: switch.turn_on
             target:
-
               entity_id: switch.export_power_limit
+          - action: number.set_value
+            target:
+              entity_id: number.export_power_limit
+            data:
+              value: number.grid_export_dnsp_limit
