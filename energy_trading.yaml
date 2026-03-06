@@ -79,11 +79,12 @@ input_number:
     icon: mdi:battery-arrow-down
 
 # Added DNSP export limit input number as my invertor has higher capactiy than my approved DNSP export limt.
+# Pulls inverter rated output if availble, defaults to 10,000
   grid_export_dnsp_limit:
     name: Grid Export DNSP Limit
     min: 0
-    max: "{{ states('sensor.inverter_rated_output') | int(0) }}"
-    step: 1
+    max: "{{ states('sensor.inverter_rated_output') | int(10000) }}"
+    step: 100
     mode: slider
     unit_of_measurement: "W"
     icon: mdi:transmission-tower-export
@@ -512,3 +513,4 @@ automation:
               entity_id: number.export_power_limit
             data:
               value: number.grid_export_dnsp_limit
+
