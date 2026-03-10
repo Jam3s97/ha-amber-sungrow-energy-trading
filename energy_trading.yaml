@@ -505,7 +505,6 @@ automation:
               entity_id: select.battery_forced_charge_discharge
             data:
               option: "Stop (default)"
-          - action: switch.turn_off
           - action: switch.turn_on
             target:
               entity_id: switch.export_power_limit
@@ -514,5 +513,6 @@ automation:
               entity_id: number.export_power_limit
             data:
               value: number.grid_export_dnsp_limit
+
 
 
