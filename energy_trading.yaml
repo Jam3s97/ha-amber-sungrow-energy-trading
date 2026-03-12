@@ -439,7 +439,7 @@ automation:
                 entity_id: sensor.amber_express_home_general_price
                 below: 0
               - condition: template
-                value_template: {{ buy_price_is_estimate == false }}
+                value_template: "{{ buy_price_is_estimate == false }}"
             sequence:
               - action: select.select_option
                 target:
@@ -518,5 +518,4 @@ automation:
               entity_id: number.export_power_limit
             data:
               value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
-
 
