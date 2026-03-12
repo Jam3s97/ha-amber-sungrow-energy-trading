@@ -90,8 +90,70 @@ input_number:
     unit_of_measurement: "W"
     icon: mdi:transmission-tower-export
 
+# For battery charge target tracking
+input_datetime:
+    house_battery_target_full_time:
+      name: "House: Battery Target Full Time"
+      has_time: true
+      initial: "16:30:00"
+
 # ==============================================================================
-# 2. AUTOMATIONS
+# 2. Templates
+# ==============================================================================
+template:
+  - sensor:
+      # -----------------------------------------------------------------------
+      # BATTERY REQUIRED CHARGE POWER (W)
+      # Charge rate needed RIGHT NOW to reach 100% SoC by the target time.
+      # Returns -1 if data is unavailable, 0 if battery is already full
+      # or target time has passed.
+      #
+      # SUBSTITUTE: sensor.battery_level → your Sungrow SoC entity (%)
+      # -----------------------------------------------------------------------
+      - name: "Battery Required Charge Power"
+        unique_id: battery_required_charge_power
+        unit_of_measurement: "W"
+        icon: mdi:battery-clock
+        state: >
+          {% set soc = states('sensor.battery_level') | float(-1) %}
+          {% set capacity_kwh = states('sensor.battery_capacity_high_precision') | float(0) %}
+          {% set target_str = states('input_datetime.house_battery_target_full_time') %}
+          {% if soc < 0 or capacity_kwh == 0 or target_str in ['unknown', 'unavailable'] %}
+            -1
+          {% else %}
+            {% set energy_needed_kwh = capacity_kwh * ([0, 100 - soc] | max) / 100 %}
+            {% set t = target_str.split(':') %}
+            {% set target_dt = now().replace(hour=t[0]|int, minute=t[1]|int, second=0, microsecond=0) %}
+            {% set hours_left = (target_dt - now()).total_seconds() / 3600 %}
+            {% if hours_left <= 0 or soc >= 99 %}
+              0
+            {% else %}
+              {{ (energy_needed_kwh / hours_left * 1000) | round(0) }}
+            {% endif %}
+          {% endif %}
+
+      # -----------------------------------------------------------------------
+      # BATTERY ON TRACK FOR TARGET
+      # Compares current battery charge rate to required rate.
+      # Used as the gate for forecast alert notifications.
+      # -----------------------------------------------------------------------
+      - name: "Battery On Track for Target"
+        unique_id: battery_on_track_for_target
+        icon: mdi:battery-check
+        state: >
+          {% set required = states('sensor.battery_required_charge_power') | float(-1) %}
+          {% set batt_power = states('sensor.battery_charging_power_signed') | float(0) %}
+          {% set soc = states('sensor.battery_level') | float(100) %}
+          {% if required < 0 %}
+            unknown
+          {% elif required == 0 or soc >= 99 %}
+            true
+          {% else %}
+            {{ batt_power >= required }}
+          {% endif %}
+
+# ==============================================================================
+# 3. AUTOMATIONS
 # ==============================================================================
 automation:
   - id: "automation_master_inverter_control"
@@ -518,4 +580,56 @@ automation:
               entity_id: number.export_power_limit
             data:
               value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION: Battery SoC Forecast Notification
+  #
+  # Checks every 15 minutes whether the battery is on track to reach 100% SoC
+  # by house_battery_target_full_time (default 16:30).
+  #
+  # Only fires when:
+  #   - Within 6 hours of the target time (and before it passes)
+  #   - Battery is not on track (sensor.battery_on_track_for_target == false)
+  #   - Battery is not already essentially full (< 99%)
+  #
+  # SUBSTITUTE: notify.notify → your notification target
+  #             (e.g. notify.mobile_app_your_phone)
+  # ----------------------------------------------------------------------------
+  - alias: "House: Battery SoC Forecast Alert"
+    id: house_battery_soc_forecast_alert
+    description: "Alerts if battery will not reach 100% SoC by the target time"
+    triggers:
+      - platform: time_pattern
+        minutes: "/15"
+    conditions:
+      # Only alert in the window leading up to the target time
+      - condition: template
+        value_template: >
+          {% set target_str = states('input_datetime.house_battery_target_full_time') %}
+          {% if target_str in ['unknown', 'unavailable'] %}
+            false
+          {% else %}
+            {% set t = target_str.split(':') %}
+            {% set target_dt = now().replace(hour=t[0]|int, minute=t[1]|int, second=0, microsecond=0) %}
+            {% set hours_left = (target_dt - now()).total_seconds() / 3600 %}
+            {{ 0 < hours_left <= 6 }}
+          {% endif %}
+      # Battery is falling behind
+      - condition: template
+        value_template: "{{ states('sensor.battery_on_track_for_target') == 'false' }}"
+      # Battery is not already full
+      - condition: template
+        value_template: "{{ states('sensor.battery_level') | float(100) < 99 }}"
+    actions:
+      - service: notify.mobile_app_pixel_8_pro
+        data:
+          title: "⚠️ Battery Won't Reach 100% in Time"
+          message: >
+            Battery is at {{ states('sensor.battery_level') | round(1) }}%.
+            Needs {{ states('sensor.battery_required_charge_power') }}W to reach 100%
+            by {{ states('input_datetime.house_battery_target_full_time') }}.
+            Currently charging at
+            {{ [0, states('sensor.battery_charging_power_signed') | int] | max }}W.
+            Consider enabling grid charge or reducing load.
 
