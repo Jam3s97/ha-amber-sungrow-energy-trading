@@ -148,16 +148,24 @@ template:
   - sensor:
 
       # -----------------------------------------------------------------------
+            # -----------------------------------------------------------------------
       # SOLAR-ONLY SURPLUS (W)
-      # Grid export minus battery absorption. Excludes battery discharge
-      # as a source — only counts genuine solar coming through the inverter.
+      # True solar generation available for EV charging, stripped of any
+      # battery discharge contribution to the export figure.
       #
-      # Formula: (grid export) - (power going INTO battery × 0.96 efficiency)
+      # Logic:
+      #   - Battery DISCHARGING (batt < 0): battery is padding the grid export
+      #     number — subtract it to isolate genuine solar surplus.
+      #   - Battery CHARGING (batt > 0): the export figure already is the solar
+      #     surplus (solar → house + battery + grid) — leave it untouched.
+      #   - Battery IDLE: export figure is pure solar — leave it untouched.
+      #
+      # Formula: grid_export - battery_discharge_contribution
       #
       # Examples:
-      #   Exporting 2000W, battery charging at 500W  → 2000 - 480 = 1520W ✓
-      #   Importing 300W, battery idle               → -300 - 0   = -300W ✓
-      #   Exporting 1000W, battery discharging (ignored as source) → 1000W ✓
+      #   Exporting 2000W, battery charging 500W   → 2000 - 0   = 2000W ✓
+      #   Exporting 2000W, battery discharging 500W → 2000 - 500 = 1500W ✓
+      #   Importing 300W,  battery idle             → -300 - 0   = -300W ✓
       # -----------------------------------------------------------------------
       - name: "EV Solar Only Surplus"
         unique_id: ev_solar_only_surplus
@@ -166,9 +174,10 @@ template:
           {% set grid = states('sensor.meter_active_power') | float(0) %}
           {% set batt = states('sensor.battery_charging_power_signed') | float(0) %}
           {% set grid_export = -1 * grid %}
-          {% set batt_absorbed = [0, batt * 0.96] | max %}
-          {{ (grid_export - batt_absorbed) | round(0) }}
-
+          {# Only non-zero when battery is discharging (batt < 0) #}
+          {% set batt_discharge = [0, -batt] | max %}
+          {{ (grid_export - batt_discharge) | round(0) }}
+          
       # -----------------------------------------------------------------------
       # CLOUD BUFFER ACTIVE
       # True for ev_cloud_hold_minutes after the last solar surplus was seen.
