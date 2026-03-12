@@ -1,0 +1,434 @@
+# /config/packages/ev_smart_charging.yaml
+# ==============================================================================
+# EV SMART CHARGING PACKAGE
+# Architecture based on energy_trading.yaml
+#
+# SUBSTITUTE THESE ENTITIES FOR YOUR SETUP:
+#   sensor.battery_level              → Your Sungrow battery SoC sensor (%)
+#                                     (e.g. sensor.sungrow_battery_level)
+#   sensor.amber_express_home_general_price      → Your real-time grid buy price (¢/kWh)
+#                                     Remove Fast Charge
+#                                     price gating if not applicable.
+#   notify.notify                   → Your notification service
+#
+# EXISTING ENTITIES RETAINED FROM YOUR SETUP:
+#   sensor.charging_status          (EV charging state)
+#   sensor.battery_charging_power_signed  (+ve=charging, -ve=discharging)
+#   sensor.meter_active_power       (+ve=import, -ve=export)
+#   sensor.load_power               (whole home load W)
+#   input_number.set_wb1_output_current  (Sungrow wallbox setpoint A)
+#   number.battery_max_discharge_power   (Sungrow battery discharge limit W)
+# ==============================================================================
+
+
+# ==============================================================================
+# 1. HELPERS
+# ==============================================================================
+input_number:
+
+  ev_voltage:
+    name: "EV: Charging Voltage"
+    min: 200
+    max: 260
+    step: 1
+    initial: 240
+    unit_of_measurement: "V"
+    icon: mdi:lightning-bolt
+    mode: box
+
+  ev_min_amps:
+    name: "EV: Minimum Charge Amps"
+    min: 6
+    max: 16
+    step: 1
+    initial: 6
+    unit_of_measurement: "A"
+    icon: mdi:current-ac
+    mode: slider
+
+  ev_max_amps:
+    name: "EV: Maximum Charge Amps"
+    min: 6
+    max: 32
+    step: 1
+    initial: 32
+    unit_of_measurement: "A"
+    icon: mdi:current-ac
+    mode: slider
+
+  ev_inverter_load_ceiling_watts:
+    name: "EV: Inverter Load Ceiling"
+    min: 5000
+    max: 10600
+    step: 500
+    initial: 8500
+    unit_of_measurement: "W"
+    icon: mdi:home-lightning-bolt
+    mode: slider
+
+  ev_surplus_buffer_watts:
+    # Absorbs inverter lag and cloud transients — prevents constant amp hunting.
+    # 200W is a good starting point; increase if you see rapid oscillation.
+    name: "EV: Surplus Stability Buffer"
+    min: 0
+    max: 1000
+    step: 50
+    initial: 200
+    unit_of_measurement: "W"
+    icon: mdi:chart-bell-curve
+    mode: slider
+
+  ev_cloud_hold_minutes:
+    # How long to hold charging at min_amps after solar drops,
+    # drawing a small amount from the battery to bridge the gap.
+    name: "EV: Cloud Hold Duration"
+    min: 1
+    max: 10
+    step: 1
+    initial: 5
+    unit_of_measurement: "min"
+    icon: mdi:weather-cloudy-clock
+    mode: slider
+
+  ev_fast_charge_max_price:
+    # Fast Charge: if grid price exceeds this, revert to Excess Solar logic.
+    # Prevents expensive grid top-ups during price spikes.
+    name: "EV: Fast Charge Max Grid Price"
+    min: -10
+    max: 100
+    step: 1
+    initial: 15
+    unit_of_measurement: "¢/kWh"
+    icon: mdi:cash-fast
+    mode: slider
+
+  ev_battery_discharge_restore_watts:
+    # Set this to your normal number.battery_max_discharge_power value.
+    # It will be restored automatically when Fast Charge ends or EV unplugs.
+    name: "EV: Battery Normal Max Discharge"
+    min: 0
+    max: 10600
+    step: 100
+    initial: 10600
+    unit_of_measurement: "W"
+    icon: mdi:battery-arrow-down
+    mode: box
+
+input_select:
+  ev_charging_mode:
+    name: "EV Charging Mode"
+    options:
+      - "Excess Solar Charge"
+      - "Fast Charge"
+    initial: "Excess Solar Charge"
+    icon: mdi:ev-station
+
+
+input_boolean:
+  ev_battery_discharge_locked:
+    # Internal flag: tracks whether we've locked battery discharge for Fast Charge.
+    # Prevents spurious restore calls and duplicate writes.
+    name: "EV: Battery Discharge Locked"
+    icon: mdi:battery-lock
+
+
+input_datetime:
+  ev_last_solar_surplus:
+    # Stamped every 15s whenever genuine solar surplus is detected.
+    # Drives the cloud hold buffer window.
+    name: "EV: Last Solar Surplus Timestamp"
+    has_date: true
+    has_time: true
+
+
+# ==============================================================================
+# 2. TEMPLATE SENSORS
+# ==============================================================================
+template:
+  - sensor:
+
+      # -----------------------------------------------------------------------
+      # SOLAR-ONLY SURPLUS (W)
+      # Grid export minus battery absorption. Excludes battery discharge
+      # as a source — only counts genuine solar coming through the inverter.
+      #
+      # Formula: (grid export) - (power going INTO battery × 0.96 efficiency)
+      #
+      # Examples:
+      #   Exporting 2000W, battery charging at 500W  → 2000 - 480 = 1520W ✓
+      #   Importing 300W, battery idle               → -300 - 0   = -300W ✓
+      #   Exporting 1000W, battery discharging (ignored as source) → 1000W ✓
+      # -----------------------------------------------------------------------
+      - name: "EV Solar Only Surplus"
+        unique_id: ev_solar_only_surplus
+        unit_of_measurement: "W"
+        state: >
+          {% set grid = states('sensor.meter_active_power') | float(0) %}
+          {% set batt = states('sensor.battery_charging_power_signed') | float(0) %}
+          {% set grid_export = -1 * grid %}
+          {% set batt_absorbed = [0, batt * 0.96] | max %}
+          {{ (grid_export - batt_absorbed) | round(0) }}
+
+      # -----------------------------------------------------------------------
+      # CLOUD BUFFER ACTIVE
+      # True for ev_cloud_hold_minutes after the last solar surplus was seen.
+      # While active, the main loop floors charge rate at min_amps.
+      # -----------------------------------------------------------------------
+      - name: "EV Cloud Buffer Active"
+        unique_id: ev_cloud_buffer_active
+        state: >
+          {% set last = states('input_datetime.ev_last_solar_surplus') %}
+          {% if last in ['unknown', 'unavailable'] %}
+            false
+          {% else %}
+            {% set hold_secs = states('input_number.ev_cloud_hold_minutes') | float(5) * 60 %}
+            {% set elapsed = (now() - last | as_datetime).total_seconds() %}
+            {{ elapsed < hold_secs }}
+          {% endif %}
+
+
+# ==============================================================================
+# 3. AUTOMATIONS
+# ==============================================================================
+automation:
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION 1: Main EV Smart Charging Loop
+  #
+  # Runs every 15 seconds while EV is actively charging.
+  # Only writes to the wallbox if the target amps value has changed
+  # (reduces unnecessary Modbus bus traffic).
+  #
+  # EXCESS SOLAR CHARGE mode:
+  #   - Tracks solar-only surplus (grid export minus battery absorption)
+  #   - Asymmetric rounding: conservative going up, decisive going down
+  #   - Cloud buffer: floors at min_amps for ev_cloud_hold_minutes after
+  #     solar drops, drawing a small amount from battery to bridge the gap
+  #
+  # FAST CHARGE mode:
+  #   - Targets max_amps (32A), grid supplies whatever solar doesn't
+  #   - Inverter load ceiling still enforced
+  #   - Falls back to Excess Solar logic if grid price > max_price slider
+  #   - Battery discharge lock is handled by Automation 3 (separate concern)
+  # ----------------------------------------------------------------------------
+  - alias: "EV: Smart Charging Loop"
+    id: ev_smart_charging_loop
+    description: >
+      Adjusts wallbox charge rate every 15s based on mode, solar surplus,
+      cloud buffer state, and inverter ceiling.
+    mode: single
+    max_exceeded: silent
+    trigger:
+      - platform: time_pattern
+        seconds: "/15"
+    condition:
+      - condition: state
+        entity_id: sensor.charging_status
+        state: "Charging"
+      - condition: template
+        value_template: >
+          {{ states('sensor.battery_charging_power_signed') not in ['unknown', 'unavailable']
+             and states('sensor.meter_active_power') not in ['unknown', 'unavailable']
+             and states('sensor.load_power') not in ['unknown', 'unavailable'] }}
+    action:
+      # Snapshot all state into variables before calculations
+      - variables:
+          mode: "{{ states('input_select.ev_charging_mode') }}"
+          current_amps: "{{ states('input_number.set_wb1_output_current') | float(6) }}"
+          voltage: "{{ states('input_number.ev_voltage') | float(240) }}"
+          min_amps: "{{ states('input_number.ev_min_amps') | float(6) }}"
+          max_amps: "{{ states('input_number.ev_max_amps') | float(32) }}"
+          max_load_watts: "{{ states('input_number.ev_inverter_load_ceiling_watts') | float(8500) }}"
+          buffer_watts: "{{ states('input_number.ev_surplus_buffer_watts') | float(200) }}"
+          load_power: "{{ states('sensor.load_power') | float(0) }}"
+          grid_price: "{{ states('sensor.amber_express_home_general_price') | float(0) }}"
+          max_price: "{{ states('input_number.ev_fast_charge_max_price') | float(30) }}"
+          cloud_active: "{{ states('sensor.ev_cloud_buffer_active') | lower == 'true' }}"
+          solar_surplus: "{{ states('sensor.ev_solar_only_surplus') | float(0) }}"
+          batt_power: "{{ states('sensor.battery_charging_power_signed') | float(0) }}"
+          # batt_power < 0 = discharging, > 0 = charging
+          # Max acceptable battery draw during cloud hold = min_amps × voltage
+          # (e.g. 6A × 240V = 1440W — the EV is carrying its own minimum load)
+
+      # Inverter headroom: amps remaining before hitting the load ceiling
+      - variables:
+          headroom_amps: "{{ (([0, max_load_watts - load_power] | max) / voltage) | int }}"
+
+      # Calculate target amps
+      - variables:
+          target_amps: >
+            {% if mode == 'Fast Charge' and grid_price <= max_price %}
+
+              {# ── FAST CHARGE ───────────────────────────────────────────────
+                 Target max amps. Grid fills whatever solar doesn't cover.
+                 Battery discharge is locked separately (Automation 3).
+                 Inverter ceiling always enforced.
+              ─────────────────────────────────────────────────────────────── #}
+              {% set ceiling = [max_amps, current_amps + headroom_amps] | min %}
+              {{ [min_amps, [ceiling, max_amps] | min] | max }}
+
+            {% else %}
+
+              {# ── EXCESS SOLAR (or Fast Charge with price exceeded) ─────────
+                 Track solar surplus with asymmetric rounding:
+                   - Floor division going UP  → don't overshoot
+                   - Ceiling division going DOWN → decisive reduction
+                 Cloud buffer: hold at min_amps if we recently had solar.
+              ─────────────────────────────────────────────────────────────── #}
+              {% set effective = solar_surplus - buffer_watts %}
+
+              {% if effective > 0 %}
+                {% set adj = (effective / voltage) | round(0, 'floor') | int %}
+              {% else %}
+                {% set adj = (effective / voltage) | round(0, 'ceil') | int %}
+              {% endif %}
+
+              {% set raw = current_amps + adj %}
+
+              {# Clamp against inverter load ceiling #}
+              {% set ceiling_clamped = [raw, current_amps + headroom_amps] | min %}
+
+              {# Hard clamp to valid range [0, max_amps] #}
+              {% set clamped = [0, [ceiling_clamped | int, max_amps] | min] | max %}
+
+              {# Cloud buffer floor:
+                 Only hold at min_amps if ALL three conditions are true:
+                   1. We recently had genuine solar surplus (cloud_active = true)
+                   2. Solar has now dropped below min_amps (clamped < min_amps)
+                   3. Battery is actually discharging (batt_power < 0)
+                      AND the draw is within the min_amps threshold
+                      (i.e. battery isn't already being drained > min_amps worth)
+                 If battery draw exceeds that threshold the solar is really gone
+                 and the battery is working hard elsewhere, so let amps drop to 0.
+              #}
+              {% set max_batt_draw = min_amps * voltage %}
+              {% if cloud_active
+                    and clamped < min_amps
+                    and batt_power < 0
+                    and (batt_power | abs) <= max_batt_draw %}
+                {{ min_amps }}
+              {% else %}
+                {{ clamped }}
+              {% endif %}
+
+            {% endif %}
+
+      # Change guard: only write to wallbox if value actually changed
+      - condition: template
+        value_template: "{{ target_amps | int != current_amps | int }}"
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.set_wb1_output_current
+        data:
+          value: "{{ target_amps }}"
+
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION 2: Track Last Solar Surplus Timestamp
+  #
+  # Stamps input_datetime.ev_last_solar_surplus every 15s whenever genuine
+  # solar-only surplus is positive. This timestamp drives the cloud buffer
+  # window in Automation 1 — no timestamp update = cloud timer counts down.
+  # ----------------------------------------------------------------------------
+  - alias: "EV: Track Last Solar Surplus"
+    id: ev_track_last_solar_surplus
+    description: "Stamps last solar surplus timestamp to drive the cloud hold buffer"
+    mode: single
+    max_exceeded: silent
+    trigger:
+      - platform: time_pattern
+        seconds: "/15"
+    condition:
+      - condition: state
+        entity_id: sensor.charging_status
+        state: "Charging"
+      - condition: template
+        value_template: "{{ states('sensor.ev_solar_only_surplus') | float(0) > 0 }}"
+    action:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.ev_last_solar_surplus
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION 3: Fast Charge — Lock Battery Discharge
+  #
+  # Sets number.battery_max_discharge_power to 10W when both conditions are true:
+  #   1. EV Charging Mode is "Fast Charge"
+  #   2. EV is actively charging
+  #
+  # The input_boolean.ev_battery_discharge_locked flag prevents duplicate writes
+  # and ensures the restore automation knows what to clean up.
+  # ----------------------------------------------------------------------------
+  - alias: "EV: Fast Charge - Lock Battery Discharge"
+    id: ev_fast_charge_lock_battery
+    description: "Locks battery max discharge to 10W during Fast Charge to prevent battery drain"
+    trigger:
+      - platform: state
+        entity_id: input_select.ev_charging_mode
+        to: "Fast Charge"
+      - platform: state
+        entity_id: sensor.charging_status
+        to: "Charging"
+    condition:
+      - condition: state
+        entity_id: input_select.ev_charging_mode
+        state: "Fast Charge"
+      - condition: state
+        entity_id: sensor.charging_status
+        state: "Charging"
+      # Only act if not already locked (prevents redundant Modbus writes)
+      - condition: state
+        entity_id: input_boolean.ev_battery_discharge_locked
+        state: "off"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.battery_max_discharge_power
+        data:
+          value: 10
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ev_battery_discharge_locked
+
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION 4: Restore Battery Discharge Rate
+  #
+  # Restores number.battery_max_discharge_power to its normal value when:
+  #   - EV Charging Mode changes AWAY from "Fast Charge", OR
+  #   - EV stops charging (sensor.charging_status leaves "Charging")
+  #
+  # Uses the locked flag as a gate — only restores if it was actually locked,
+  # preventing spurious writes if the EV stopped without ever being in Fast Charge.
+  #
+  # Set input_number.ev_battery_discharge_restore_watts to your normal
+  # battery discharge limit before using Fast Charge mode.
+  # ----------------------------------------------------------------------------
+  - alias: "EV: Restore Battery Discharge Rate"
+    id: ev_restore_battery_discharge
+    description: "Restores battery max discharge to normal when Fast Charge ends or EV stops"
+    trigger:
+      - platform: state
+        entity_id: input_select.ev_charging_mode
+        from: "Fast Charge"
+      - platform: state
+        entity_id: sensor.charging_status
+        from: "Charging"
+    condition:
+      - condition: state
+        entity_id: input_boolean.ev_battery_discharge_locked
+        state: "on"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.battery_max_discharge_power
+        data:
+          value: "{{ states('input_number.ev_battery_discharge_restore_watts') | int(10600) }}"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ev_battery_discharge_locked
+
