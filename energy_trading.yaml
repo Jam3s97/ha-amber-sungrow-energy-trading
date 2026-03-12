@@ -315,6 +315,9 @@ automation:
       - variables:
           price: "{{ states('sensor.amber_express_home_feed_in_price') | float(0) }}"
           buy_price: "{{ states('sensor.amber_express_home_general_price') | float(0) }}"
+          price_is_estimate: "{{ state_attr('sensor.amber_express_home_feed_in_price', 'estimate') }}"
+          buy_price_is_estimate: "{{ state_attr('sensor.amber_express_home_general_price', 'estimate') }}"
+          export_current_limit: "{{ states('number.export_power_limit') | float(0) }}"
           soc: "{{ states('sensor.battery_level') | int(0) }}"
           # Divide whole cents by 100 to compare against Amber's dollar amounts
           t3_price: "{{ states('input_number.fil_amber_dump_tier3_cents') | float(0) / 100 }}"
@@ -435,6 +438,8 @@ automation:
               - condition: numeric_state
                 entity_id: sensor.amber_express_home_general_price
                 below: 0
+              - condition: template
+                value_template: {{ buy_price_is_estimate == false }}
             sequence:
               - action: select.select_option
                 target:
@@ -491,7 +496,7 @@ automation:
                 target:
                   entity_id: number.export_power_limit
                 data:
-                  value: 0
+                  value: 100
 
         # Default Auto Fallback: Normal self-consumption & export excess
         default:
@@ -513,4 +518,5 @@ automation:
               entity_id: number.export_power_limit
             data:
               value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+
 
