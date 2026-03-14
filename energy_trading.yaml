@@ -620,7 +620,7 @@ automation:
         value_template: "{{ states('sensor.battery_on_track_for_target') == 'false' }}"
       # Battery is not already full
       - condition: template
-        value_template: "{{ states('sensor.battery_level') | float(100) < 99 }}"
+        value_template: "{{ states('sensor.battery_level') | float(100) < 97 }}"
     actions:
       - service: notify.mobile_app_pixel_8_pro
         data:
