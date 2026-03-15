@@ -92,13 +92,13 @@ input_number:
 
 # For battery charge target tracking
 input_datetime:
-    house_battery_target_full_time:
-      name: "House: Battery Target Full Time"
-      has_time: true
-      initial: "16:30:00"
+  house_battery_target_full_time:
+    name: "House: Battery Target Full Time"
+    has_time: true
+    initial: "16:30:00"
 
 # ==============================================================================
-# 2. Templates
+# 2. TEMPLATES
 # ==============================================================================
 template:
   - sensor:
@@ -107,8 +107,6 @@ template:
       # Charge rate needed RIGHT NOW to reach 100% SoC by the target time.
       # Returns -1 if data is unavailable, 0 if battery is already full
       # or target time has passed.
-      #
-      # SUBSTITUTE: sensor.battery_level → your Sungrow SoC entity (%)
       # -----------------------------------------------------------------------
       - name: "Battery Required Charge Power"
         unique_id: battery_required_charge_power
@@ -153,9 +151,250 @@ template:
           {% endif %}
 
 # ==============================================================================
-# 3. AUTOMATIONS
+# 3. SCRIPTS
+# Each script only writes a register if the current value differs.
+# This prevents redundant modbus writes hammering the Inverter.
+# ==============================================================================
+script:
+
+  # ----------------------------------------------------------------------------
+  # Forced Discharge: Forced mode + discharge at max power + DNSP export limit
+  # Used by: Max Export (Dump), Auto Tier 1/2/3
+  # ----------------------------------------------------------------------------
+  sungrow_set_forced_discharge:
+    alias: "Sungrow: Set Forced Discharge"
+    icon: mdi:battery-arrow-up
+    sequence:
+      - if:
+          - "{{ states('select.ems_mode') != 'Forced mode' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.ems_mode
+            data:
+              option: "Forced mode"
+      - if:
+          - "{{ states('select.battery_forced_charge_discharge') != 'Forced discharge' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.battery_forced_charge_discharge
+            data:
+              option: "Forced discharge"
+      - variables:
+          max_discharge: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+          max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+      - if:
+          - "{{ states('number.battery_forced_charge_discharge_power') | float != max_discharge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_forced_charge_discharge_power
+            data:
+              value: "{{ max_discharge }}"
+      - if:
+          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_max_discharge_power
+            data:
+              value: "{{ max_bat_discharge }}"
+      - if:
+          - "{{ states('switch.export_power_limit') != 'on' }}"
+        then:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.export_power_limit
+      - if:
+          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.export_power_limit
+            data:
+              value: "{{ dnsp_limit }}"
+
+  # ----------------------------------------------------------------------------
+  # Forced Charge: Forced mode + charge at max power + DNSP export limit
+  # Used by: Max Import (Grid Charge), Auto P4 (negative buy price)
+  # ----------------------------------------------------------------------------
+  sungrow_set_forced_charge:
+    alias: "Sungrow: Set Forced Charge"
+    icon: mdi:battery-charging-100
+    sequence:
+      - if:
+          - "{{ states('select.ems_mode') != 'Forced mode' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.ems_mode
+            data:
+              option: "Forced mode"
+      - if:
+          - "{{ states('select.battery_forced_charge_discharge') != 'Forced charge' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.battery_forced_charge_discharge
+            data:
+              option: "Forced charge"
+      - variables:
+          max_charge: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
+          max_bat_charge: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+      - if:
+          - "{{ states('number.battery_forced_charge_discharge_power') | float != max_charge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_forced_charge_discharge_power
+            data:
+              value: "{{ max_charge }}"
+      - if:
+          - "{{ states('number.battery_max_charge_power') | float != max_bat_charge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_max_charge_power
+            data:
+              value: "{{ max_bat_charge }}"
+      - if:
+          - "{{ states('switch.export_power_limit') != 'on' }}"
+        then:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.export_power_limit
+      - if:
+          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.export_power_limit
+            data:
+              value: "{{ dnsp_limit }}"
+
+  # ----------------------------------------------------------------------------
+  # Self-Consumption + Export: Normal solar-first, export excess up to DNSP limit
+  # Used by: Excess Solar to Grid, Auto default fallback
+  # ----------------------------------------------------------------------------
+  sungrow_set_self_consumption_export:
+    alias: "Sungrow: Set Self-Consumption + Export"
+    icon: mdi:solar-power-variant
+    sequence:
+      - if:
+          - "{{ states('select.ems_mode') != 'Self-consumption mode (default)' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.ems_mode
+            data:
+              option: "Self-consumption mode (default)"
+      - if:
+          - "{{ states('select.battery_forced_charge_discharge') != 'Stop (default)' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.battery_forced_charge_discharge
+            data:
+              option: "Stop (default)"
+      - variables:
+          max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+      - if:
+          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_max_discharge_power
+            data:
+              value: "{{ max_bat_discharge }}"
+      - if:
+          - "{{ states('number.battery_reserved_soc_for_backup') | int != 10 }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_reserved_soc_for_backup
+            data:
+              value: 10
+              entity_id: switch.export_power_limit
+      - if:
+          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.export_power_limit
+            data:
+              value: "{{ dnsp_limit }}"
+
+  # ----------------------------------------------------------------------------
+  # Self-Consumption + Zero Export: Blocks all export to grid
+  # Used by: Self Consumption (Zero Export), Auto P5 (negative FiT)
+  # export_limit_watts: pass 0 for hard zero, or 100 for soft near-zero (neg FiT)
+  # ----------------------------------------------------------------------------
+  sungrow_set_self_consumption_zero_export:
+    alias: "Sungrow: Set Self-Consumption Zero Export"
+    icon: mdi:transmission-tower-off
+    fields:
+      export_limit_watts:
+        description: "Export limit in watts (0 = hard zero, 100 = soft near-zero)"
+        default: 0
+        selector:
+          number:
+            min: 0
+            max: 500
+            unit_of_measurement: W
+    sequence:
+      - if:
+          - "{{ states('select.ems_mode') != 'Self-consumption mode (default)' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.ems_mode
+            data:
+              option: "Self-consumption mode (default)"
+      - if:
+          - "{{ states('select.battery_forced_charge_discharge') != 'Stop (default)' }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: select.battery_forced_charge_discharge
+            data:
+              option: "Stop (default)"
+      - variables:
+          max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+      - if:
+          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.battery_max_discharge_power
+            data:
+              value: "{{ max_bat_discharge }}"
+      - if:
+          - "{{ states('switch.export_power_limit') != 'on' }}"
+        then:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.export_power_limit
+      - if:
+          - "{{ states('number.export_power_limit') | float != export_limit_watts | float }}"
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.export_power_limit
+            data:
+              value: "{{ export_limit_watts }}"
+
+# ==============================================================================
+# 4. AUTOMATIONS
 # ==============================================================================
 automation:
+
+  # ----------------------------------------------------------------------------
+  # AUTOMATION: Master Inverter Control
+  # ----------------------------------------------------------------------------
   - id: "automation_master_inverter_control"
     alias: "Master Inverter Control Automation"
     description: "Controls inverter behaviour from a single dropdown (Manual Overrides)"
@@ -170,34 +409,7 @@ automation:
                 entity_id: input_select.master_inverter_mode
                 state: "Excess Solar to Grid"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Self-consumption mode (default)"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Stop (default)"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_reserved_soc_for_backup
-                data:
-                  value: 0
+              - action: script.sungrow_set_self_consumption_export
 
           # Dumps battery to grid at max capacity.
           - conditions:
@@ -205,140 +417,43 @@ automation:
                 entity_id: input_select.master_inverter_mode
                 state: "Max Export (Dump)"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced discharge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_discharge
 
-          # Pulls from grid to charge battery at max capacity.
           - conditions:
               - condition: state
                 entity_id: input_select.master_inverter_mode
                 state: "Max Import (Grid Charge)"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced charge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_charge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_charge
 
-          # Standard operation but blocks export to the grid.
           - conditions:
               - condition: state
                 entity_id: input_select.master_inverter_mode
                 state: "Self Consumption (Zero Export)"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
+              - action: script.sungrow_set_self_consumption_zero_export
                 data:
-                  option: "Self-consumption mode (default)"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Stop (default)"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value: 0
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
+                  export_limit_watts: 0
 
-          # Forces charge at maximum rate and sets backup reserve to 100% so it stays full.
+          # Storm Mode: forced charge + lock backup reserve at 100%
           - conditions:
               - condition: state
                 entity_id: input_select.master_inverter_mode
                 state: "Storm Mode"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced charge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_charge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_reserved_soc_for_backup
-                data:
-                  value: 100
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_charge
+              - if:
+                  - "{{ states('number.battery_reserved_soc_for_backup') | int != 100 }}"
+                then:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.battery_reserved_soc_for_backup
+                    data:
+                      value: 100
 
+  # ----------------------------------------------------------------------------
+  # AUTOMATION: Amber Trading Auto Mode
+  # ----------------------------------------------------------------------------
   - id: "automation_amber_auto_mode"
     alias: "Amber Trading Auto Mode"
     description: "Evaluates Amber pricing and SoC to dynamically control inverter when in Auto Mode"
@@ -379,7 +494,6 @@ automation:
           buy_price: "{{ states('sensor.amber_express_home_general_price') | float(0) }}"
           price_is_estimate: "{{ state_attr('sensor.amber_express_home_feed_in_price', 'estimate') }}"
           buy_price_is_estimate: "{{ state_attr('sensor.amber_express_home_general_price', 'estimate') }}"
-          export_current_limit: "{{ states('number.export_power_limit') | float(0) }}"
           soc: "{{ states('sensor.battery_level') | int(0) }}"
           # Divide whole cents by 100 to compare against Amber's dollar amounts
           t3_price: "{{ states('input_number.fil_amber_dump_tier3_cents') | float(0) / 100 }}"
@@ -395,102 +509,21 @@ automation:
               - condition: template
                 value_template: "{{ price >= t3_price and soc > t3_soc }}"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced discharge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_discharge
 
           # Priority 2: Dump Condition Met (Tier 2 - Medium Spike)
           - conditions:
               - condition: template
                 value_template: "{{ price >= t2_price and soc > t2_soc }}"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced discharge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_discharge
 
           # Priority 3: Dump Condition Met (Tier 1 - Low Spike)
           - conditions:
               - condition: template
                 value_template: "{{ price >= t1_price and soc > t1_soc }}"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced discharge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_discharge
 
           # Priority 4: Negative Buy Price (Get Paid to Charge)
           - conditions:
@@ -503,34 +536,7 @@ automation:
               - condition: template
                 value_template: "{{ buy_price_is_estimate == false }}"
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
-                data:
-                  option: "Forced mode"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Forced charge"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_forced_charge_discharge_power
-                data:
-                  value: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
-              - action: number.set_value
-                target:
-                  entity_id: number.battery_max_charge_power
-                data:
-                  value: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+              - action: script.sungrow_set_forced_charge
 
           # Priority 5: Negative FiT condition met (Stop Export)
           - conditions:
@@ -541,49 +547,16 @@ automation:
                 entity_id: sensor.amber_express_home_feed_in_price
                 below: 0
             sequence:
-              - action: select.select_option
-                target:
-                  entity_id: select.ems_mode
+              - action: script.sungrow_set_self_consumption_zero_export
                 data:
-                  option: "Self-consumption mode (default)"
-              - action: select.select_option
-                target:
-                  entity_id: select.battery_forced_charge_discharge
-                data:
-                  option: "Stop (default)"
-              - action: switch.turn_on
-                target:
-                  entity_id: switch.export_power_limit
-              - action: number.set_value
-                target:
-                  entity_id: number.export_power_limit
-                data:
-                  value: 100
+                  export_limit_watts: 100
 
         # Default Auto Fallback: Normal self-consumption & export excess
         default:
-          - action: select.select_option
-            target:
-              entity_id: select.ems_mode
-            data:
-              option: "Self-consumption mode (default)"
-          - action: select.select_option
-            target:
-              entity_id: select.battery_forced_charge_discharge
-            data:
-              option: "Stop (default)"
-          - action: switch.turn_on
-            target:
-              entity_id: switch.export_power_limit
-          - action: number.set_value
-            target:
-              entity_id: number.export_power_limit
-            data:
-              value:  "{{ states('input_number.grid_export_dnsp_limit') | float }}"
-
+          - action: script.sungrow_set_self_consumption_export
 
   # ----------------------------------------------------------------------------
-  # AUTOMATION: Battery SoC Forecast Notification
+  # AUTOMATION: Battery SoC Forecast Alert
   #
   # Checks every 15 minutes whether the battery is on track to reach 100% SoC
   # by house_battery_target_full_time (default 16:30).
@@ -593,7 +566,7 @@ automation:
   #   - Battery is not on track (sensor.battery_on_track_for_target == false)
   #   - Battery is not already essentially full (< 99%)
   #
-  # SUBSTITUTE: notify.notify → your notification target
+  # SUBSTITUTE: notify.mobile_app_pixel_8_pro → your notification target
   #             (e.g. notify.mobile_app_your_phone)
   # ----------------------------------------------------------------------------
   - alias: "House: Battery SoC Forecast Alert"
@@ -632,4 +605,3 @@ automation:
             Currently charging at
             {{ [0, states('sensor.battery_charging_power_signed') | int] | max }}W.
             Consider enabling grid charge or reducing load.
-
