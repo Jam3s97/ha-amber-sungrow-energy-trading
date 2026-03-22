@@ -573,7 +573,7 @@ automation:
     id: house_battery_soc_forecast_alert
     description: "Alerts if battery will not reach 100% SoC by the target time"
     triggers:
-      - platform: time_pattern
+      - trigger: time_pattern
         minutes: "/15"
     conditions:
       # Only alert in the window leading up to the target time
