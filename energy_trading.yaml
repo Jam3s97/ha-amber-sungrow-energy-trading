@@ -590,7 +590,7 @@ automation:
           {% endif %}
       # Battery is falling behind
       - condition: template
-        value_template: "{{ states('sensor.battery_on_track_for_target') == 'false' }}"
+        value_template: "{{ states('sensor.battery_on_track_for_target') == 'False' }}"
       # Battery is not already full
       - condition: template
         value_template: "{{ states('sensor.battery_level') | float(100) < 97 }}"
