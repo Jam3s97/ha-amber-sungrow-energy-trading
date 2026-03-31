@@ -152,8 +152,11 @@ template:
 
 # ==============================================================================
 # 3. SCRIPTS
-# Each script only writes a register if the current value differs.
-# This prevents redundant modbus writes hammering the Inverter.
+# Each script:
+#   1. Aborts immediately if inverter entities are unavailable (prevents modbus
+#      write spam during recovery which can destabilise WiNet-S)
+#   2. Only writes a register if the current value differs from the target
+#      This prevents redundant modbus writes hammering the Inverter.
 # ==============================================================================
 script:
 
@@ -165,6 +168,14 @@ script:
     alias: "Sungrow: Set Forced Discharge"
     icon: mdi:battery-arrow-up
     sequence:
+      # Abort if inverter entities are unavailable - prevents modbus write spam
+      - condition: template
+        value_template: >
+          {{ states('select.ems_mode') not in ['unavailable', 'unknown']
+             and states('select.battery_forced_charge_discharge') not in ['unavailable', 'unknown']
+             and states('number.battery_forced_charge_discharge_power') not in ['unavailable', 'unknown']
+             and states('number.battery_max_discharge_power') not in ['unavailable', 'unknown']
+             and states('number.export_power_limit') not in ['unavailable', 'unknown'] }}
       - if:
           - "{{ states('select.ems_mode') != 'Forced mode' }}"
         then:
@@ -224,6 +235,14 @@ script:
     alias: "Sungrow: Set Forced Charge"
     icon: mdi:battery-charging-100
     sequence:
+      # Abort if inverter entities are unavailable - prevents modbus write spam
+      - condition: template
+        value_template: >
+          {{ states('select.ems_mode') not in ['unavailable', 'unknown']
+             and states('select.battery_forced_charge_discharge') not in ['unavailable', 'unknown']
+             and states('number.battery_forced_charge_discharge_power') not in ['unavailable', 'unknown']
+             and states('number.battery_max_charge_power') not in ['unavailable', 'unknown']
+             and states('number.export_power_limit') not in ['unavailable', 'unknown'] }}
       - if:
           - "{{ states('select.ems_mode') != 'Forced mode' }}"
         then:
@@ -245,7 +264,7 @@ script:
           max_bat_charge: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
           dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float(0) }}"
       - if:
-          - "{{ states('number.battery_forced_charge_discharge_power') |  float(-1) != max_charge }}"
+          - "{{ states('number.battery_forced_charge_discharge_power') | float(-1) != max_charge }}"
         then:
           - action: number.set_value
             target:
@@ -253,7 +272,7 @@ script:
             data:
               value: "{{ max_charge }}"
       - if:
-          - "{{ states('number.battery_max_charge_power') |  float(-1) != max_bat_charge }}"
+          - "{{ states('number.battery_max_charge_power') | float(-1) != max_bat_charge }}"
         then:
           - action: number.set_value
             target:
@@ -267,7 +286,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') |  float(-1) != dnsp_limit }}"
+          - "{{ states('number.export_power_limit') | float(-1) != dnsp_limit }}"
         then:
           - action: number.set_value
             target:
@@ -283,6 +302,14 @@ script:
     alias: "Sungrow: Set Self-Consumption + Export"
     icon: mdi:solar-power-variant
     sequence:
+      # Abort if inverter entities are unavailable - prevents modbus write spam
+      - condition: template
+        value_template: >
+          {{ states('select.ems_mode') not in ['unavailable', 'unknown']
+             and states('select.battery_forced_charge_discharge') not in ['unavailable', 'unknown']
+             and states('number.battery_max_discharge_power') not in ['unavailable', 'unknown']
+             and states('number.battery_reserved_soc_for_backup') not in ['unavailable', 'unknown']
+             and states('number.export_power_limit') not in ['unavailable', 'unknown'] }}
       - if:
           - "{{ states('select.ems_mode') != 'Self-consumption mode (default)' }}"
         then:
@@ -303,7 +330,7 @@ script:
           max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
           dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float(0) }}"
       - if:
-          - "{{ states('number.battery_max_discharge_power') |  float(-1) != max_bat_discharge }}"
+          - "{{ states('number.battery_max_discharge_power') | float(-1) != max_bat_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -325,7 +352,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') |  float(-1) != dnsp_limit }}"
+          - "{{ states('number.export_power_limit') | float(-1) != dnsp_limit }}"
         then:
           - action: number.set_value
             target:
@@ -351,6 +378,13 @@ script:
             max: 500
             unit_of_measurement: W
     sequence:
+      # Abort if inverter entities are unavailable - prevents modbus write spam
+      - condition: template
+        value_template: >
+          {{ states('select.ems_mode') not in ['unavailable', 'unknown']
+             and states('select.battery_forced_charge_discharge') not in ['unavailable', 'unknown']
+             and states('number.battery_max_discharge_power') not in ['unavailable', 'unknown']
+             and states('number.export_power_limit') not in ['unavailable', 'unknown'] }}
       - if:
           - "{{ states('select.ems_mode') != 'Self-consumption mode (default)' }}"
         then:
@@ -370,7 +404,7 @@ script:
       - variables:
           max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
       - if:
-          - "{{ states('number.battery_max_discharge_power') |  float(-1) != max_bat_discharge }}"
+          - "{{ states('number.battery_max_discharge_power') | float(-1) != max_bat_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -384,7 +418,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') |  float(-1) != export_limit_watts | float }}"
+          - "{{ states('number.export_power_limit') | float(-1) != export_limit_watts | float }}"
         then:
           - action: number.set_value
             target:
@@ -448,7 +482,8 @@ automation:
             sequence:
               - action: script.sungrow_set_forced_charge
               - if:
-                  - "{{ states('number.battery_reserved_soc_for_backup') | int(0) != 100 }}"
+                  - "{{ states('number.battery_reserved_soc_for_backup') not in ['unavailable', 'unknown']
+                         and states('number.battery_reserved_soc_for_backup') | int(0) != 100 }}"
                 then:
                   - action: number.set_value
                     target:
@@ -489,6 +524,13 @@ automation:
         entity_id: input_boolean.auto_zero_export_negative_fit
       - trigger: state
         entity_id: input_boolean.auto_grid_charge_negative_buy
+
+      # My inverter seems to dorp a few holding registers from randomly
+	  # Adding this while investigating
+      # Re-apply correct mode immediately on inverter recovery
+      # Rather than waiting up to 5 mins for next price tick
+      - trigger: state
+        entity_id: sensor.battery_forced_charge_discharge_power
     conditions:
       - condition: state
         entity_id: input_select.master_inverter_mode
