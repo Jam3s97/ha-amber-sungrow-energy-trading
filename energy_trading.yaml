@@ -526,7 +526,7 @@ automation:
         entity_id: input_boolean.auto_grid_charge_negative_buy
 
       # My inverter seems to dorp a few holding registers from randomly
-	  # Adding this while investigating
+      # Adding this while investigating
       # Re-apply correct mode immediately on inverter recovery
       # Rather than waiting up to 5 mins for next price tick
       - trigger: state
