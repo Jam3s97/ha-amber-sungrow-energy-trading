@@ -184,9 +184,9 @@ script:
       - variables:
           max_discharge: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
           max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float(0) }}"
       - if:
-          - "{{ states('number.battery_forced_charge_discharge_power') | float != max_discharge }}"
+          - "{{ states('number.battery_forced_charge_discharge_power') | float(-1) != max_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -194,7 +194,7 @@ script:
             data:
               value: "{{ max_discharge }}"
       - if:
-          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+          - "{{ states('number.battery_max_discharge_power') | float(-1) != max_bat_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -208,7 +208,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+          - "{{ states('number.export_power_limit') | float(-1) != dnsp_limit }}"
         then:
           - action: number.set_value
             target:
@@ -243,9 +243,9 @@ script:
       - variables:
           max_charge: "{{ state_attr('number.battery_forced_charge_discharge_power', 'max') | default(10000) }}"
           max_bat_charge: "{{ state_attr('number.battery_max_charge_power', 'max') | default(10000) }}"
-          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float(0) }}"
       - if:
-          - "{{ states('number.battery_forced_charge_discharge_power') | float != max_charge }}"
+          - "{{ states('number.battery_forced_charge_discharge_power') |  float(-1) != max_charge }}"
         then:
           - action: number.set_value
             target:
@@ -253,7 +253,7 @@ script:
             data:
               value: "{{ max_charge }}"
       - if:
-          - "{{ states('number.battery_max_charge_power') | float != max_bat_charge }}"
+          - "{{ states('number.battery_max_charge_power') |  float(-1) != max_bat_charge }}"
         then:
           - action: number.set_value
             target:
@@ -267,7 +267,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+          - "{{ states('number.export_power_limit') |  float(-1) != dnsp_limit }}"
         then:
           - action: number.set_value
             target:
@@ -301,9 +301,9 @@ script:
               option: "Stop (default)"
       - variables:
           max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
-          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float }}"
+          dnsp_limit: "{{ states('input_number.grid_export_dnsp_limit') | float(0) }}"
       - if:
-          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+          - "{{ states('number.battery_max_discharge_power') |  float(-1) != max_bat_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -311,16 +311,21 @@ script:
             data:
               value: "{{ max_bat_discharge }}"
       - if:
-          - "{{ states('number.battery_reserved_soc_for_backup') | int != 10 }}"
+          - "{{ states('number.battery_reserved_soc_for_backup') | int(0) != 10 }}"
         then:
           - action: number.set_value
             target:
               entity_id: number.battery_reserved_soc_for_backup
             data:
               value: 10
+      - if:
+          - "{{ states('switch.export_power_limit') != 'on' }}"
+        then:
+          - action: switch.turn_on
+            target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') | float != dnsp_limit }}"
+          - "{{ states('number.export_power_limit') |  float(-1) != dnsp_limit }}"
         then:
           - action: number.set_value
             target:
@@ -365,7 +370,7 @@ script:
       - variables:
           max_bat_discharge: "{{ state_attr('number.battery_max_discharge_power', 'max') | default(10000) }}"
       - if:
-          - "{{ states('number.battery_max_discharge_power') | float != max_bat_discharge }}"
+          - "{{ states('number.battery_max_discharge_power') |  float(-1) != max_bat_discharge }}"
         then:
           - action: number.set_value
             target:
@@ -379,7 +384,7 @@ script:
             target:
               entity_id: switch.export_power_limit
       - if:
-          - "{{ states('number.export_power_limit') | float != export_limit_watts | float }}"
+          - "{{ states('number.export_power_limit') |  float(-1) != export_limit_watts | float }}"
         then:
           - action: number.set_value
             target:
@@ -443,7 +448,7 @@ automation:
             sequence:
               - action: script.sungrow_set_forced_charge
               - if:
-                  - "{{ states('number.battery_reserved_soc_for_backup') | int != 100 }}"
+                  - "{{ states('number.battery_reserved_soc_for_backup') | int(0) != 100 }}"
                 then:
                   - action: number.set_value
                     target:
@@ -603,5 +608,5 @@ automation:
             Needs {{ states('sensor.battery_required_charge_power') }}W to reach 100%
             by {{ states('input_datetime.house_battery_target_full_time') }}.
             Currently charging at
-            {{ [0, states('sensor.battery_charging_power_signed') | int] | max }}W.
+            {{ [0, states('sensor.battery_charging_power_signed') | int(0)] | max }}W.
             Consider enabling grid charge or reducing load.
