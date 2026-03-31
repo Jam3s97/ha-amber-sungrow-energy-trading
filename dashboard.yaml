@@ -8,24 +8,24 @@ views:
           - type: custom:mushroom-chips-card
             chips:
               - type: entity
-                entity: sensor.amber_home_general_price
+                entity: sensor.amber_express_home_general_price
                 icon: mdi:currency-usd
                 name: Buy Price
                 content_info: state
                 icon_color: >-
                   {% set price =
-                  states('sensor.amber_home_general_price') | float(0) %}
-                  {% if price < 0 %} cyan  {% elif price < 0.19 %} green  {%
+                  states('sensor.amber_express_home_general_price') | float(0)
+                  %} {% if price < 0 %} cyan  {% elif price < 0.19 %} green  {%
                   elif price < 0.40 %} orange  {% else %} red {% endif %}
               - type: entity
-                entity: sensor.amber_home_feed_in_price
+                entity: sensor.amber_express_home_feed_in_price
                 icon: mdi:solar-power
                 name: Sell Price
                 content_info: state
                 icon_color: >-
                   {% set price =
-                  states('sensor.amber_home_feed_in_price') | float(0) %}
-                  {% if price < 0 %} red  {% elif price < 0.06 %} orange  {%
+                  states('sensor.amber_express_home_feed_in_price') | float(0)
+                  %} {% if price < 0 %} red  {% elif price < 0.06 %} orange  {%
                   else %} green {% endif %}
           - type: custom:mushroom-chips-card
             alignment: end
@@ -94,6 +94,13 @@ views:
             label: 🛑 Solar Curtailment (Negative Feed-in)
           - entity: input_boolean.auto_zero_export_negative_fit
             name: Stop exporting if feed-in is < $0.00
+      - type: entities
+        entities:
+          - entity: sensor.amber_express_home_feed_in_price
+          - entity: sensor.amber_express_home_general_price
+          - entity: sensor.battery_required_charge_power
+          - entity: sensor.battery_charging_power_signed
+          - entity: sensor.battery_on_track_for_target
+          - entity: input_datetime.house_battery_target_full_time
           - entity: input_number.grid_export_dnsp_limit
-            name: Grid Export DNSP Limit
-
+          - entity: sensor.export_power_limit
